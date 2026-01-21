@@ -95,6 +95,7 @@ const (
 	UN_REGISTER                       = 301
 	KEEP_ALIVE_TIME                   = 5
 	DEFAULT_TIMEOUT_MILLS             = 3000
+	ABILITY_NEGOTIATION_TIMEOUT_MS    = 5000
 	ALL_SYNC_INTERNAL                 = 5 * time.Minute
 	CLIENT_APPNAME_HEADER             = "Client-AppName"
 	APPNAME_HEADER                    = "AppName"

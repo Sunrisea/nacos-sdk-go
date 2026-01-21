@@ -139,7 +139,7 @@ func (ac *NacosAuthClient) login(server constant.ServerConfig) (bool, error) {
 		server.Scheme = "http"
 	}
 
-	reqUrl := server.Scheme + "://" + server.IpAddr + ":" + strconv.FormatInt(int64(server.Port), 10) + contextPath + "/v1/auth/users/login"
+	reqUrl := server.Scheme + "://" + server.IpAddr + ":" + strconv.FormatInt(int64(server.Port), 10) + contextPath + "/v3/auth/user/login"
 
 	header := http.Header{
 		"content-type": []string{"application/x-www-form-urlencoded"},

@@ -19,6 +19,7 @@ package clients
 import (
 	"github.com/pkg/errors"
 
+	"github.com/nacos-group/nacos-sdk-go/v2/clients/ai_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
@@ -63,6 +64,20 @@ func NewNamingClient(param vo.NacosClientParam) (iClient naming_client.INamingCl
 		return
 	}
 	iClient = naming
+	return
+}
+
+// NewAIClient creates a new AI client for MCP and Agent management
+func NewAIClient(param vo.NacosClientParam) (iClient ai_client.IAIClient, err error) {
+	nacosClient, err := setConfig(param)
+	if err != nil {
+		return
+	}
+	aiClient, err := ai_client.NewAIClientWithRamCredentialProvider(nacosClient, param.RamCredentialProvider)
+	if err != nil {
+		return
+	}
+	iClient = aiClient
 	return
 }
 

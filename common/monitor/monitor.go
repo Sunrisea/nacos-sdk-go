@@ -63,3 +63,7 @@ func GetConfigRequestMonitor(method, url, code string) prometheus.Observer {
 func GetNamingRequestMonitor(method, url, code string) prometheus.Observer {
 	return GetHistogramWithLabels("naming", method, url, code)
 }
+
+func GetAIRequestMonitor(method, url, code string) prometheus.Observer {
+	return GetHistogramWithLabels("ai", method, url, code)
+}

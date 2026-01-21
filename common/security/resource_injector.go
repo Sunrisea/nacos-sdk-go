@@ -125,3 +125,51 @@ func trySignatureWithV4(ramContext RamContext, param map[string]string) string {
 	param[SIGNATURE_VERSION_HEADER] = SIGNATURE_VERSION_V4
 	return signatureV4
 }
+
+type AIResourceInjector struct {
+}
+
+func (a *AIResourceInjector) doInject(resource RequestResource, ramContext RamContext, param map[string]string) {
+	param[CONFIG_AK_FILED] = ramContext.AccessKey
+	if ramContext.EphemeralAccessKeyId {
+		param[SECURITY_TOKEN_HEADER] = ramContext.SecurityToken
+	}
+	secretKey := trySignatureWithV4(ramContext, param)
+	signatures := a.calculateSignature(resource, secretKey)
+	for k, v := range signatures {
+		param[k] = v
+	}
+}
+
+func (a *AIResourceInjector) calculateSignature(resource RequestResource, secretKey string) map[string]string {
+	var result = make(map[string]string, 4)
+	resourceName := a.getResourceName(resource)
+	signHeaders := a.getSignHeaders(resourceName, secretKey)
+	for k, v := range signHeaders {
+		result[k] = v
+	}
+	return result
+}
+
+func (a *AIResourceInjector) getResourceName(resource RequestResource) string {
+	if resource.namespace != "" {
+		return resource.namespace + "+" + resource.group
+	}
+	return resource.group
+}
+
+func (a *AIResourceInjector) getSignHeaders(resource, secretKey string) map[string]string {
+	header := make(map[string]string, 4)
+	timeStamp := fmt.Sprintf("%d", time.Now().UnixMilli())
+	header[TIMESTAMP_HEADER] = timeStamp
+	if secretKey != "" {
+		var signature string
+		if strings.TrimSpace(resource) == "" {
+			signature = signWithHmacSha1Encrypt(timeStamp, secretKey)
+		} else {
+			signature = signWithHmacSha1Encrypt(resource+"+"+timeStamp, secretKey)
+		}
+		header[SIGNATURE_HEADER] = signature
+	}
+	return header
+}

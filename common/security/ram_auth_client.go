@@ -46,6 +46,7 @@ func NewRamAuthClient(clientCfg constant.ClientConfig) *RamAuthClient {
 	injectors := map[string]ResourceInjector{
 		REQUEST_TYPE_NAMING: &NamingResourceInjector{},
 		REQUEST_TYPE_CONFIG: &ConfigResourceInjector{},
+		REQUEST_TYPE_AI:     &AIResourceInjector{},
 	}
 	return &RamAuthClient{
 		clientConfig:           clientCfg,

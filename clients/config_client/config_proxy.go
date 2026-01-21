@@ -77,39 +77,26 @@ func (cp *ConfigProxy) injectCommHeader(param map[string]string) {
 func (cp *ConfigProxy) searchConfigProxy(param vo.SearchConfigParam, tenant, accessKey, secretKey string) (*model.ConfigPage, error) {
 	params := util.TransformObject2Param(param)
 	if len(tenant) > 0 {
-		params["tenant"] = tenant
+		params["namespaceId"] = tenant
 	}
 	if _, ok := params["group"]; !ok {
 		params["group"] = ""
 	}
+	params["groupName"] = params["group"]
 	if _, ok := params["dataId"]; !ok {
 		params["dataId"] = ""
 	}
 	var headers = map[string]string{}
-	var version = "v2"
-	result, err := cp.nacosServer.ReqConfigApi(constant.CONFIG_PATH, params, headers, http.MethodGet, cp.clientConfig.TimeoutMs)
-	if err != nil {
-		if len(tenant) > 0 {
-			params["namespaceId"] = params["tenant"]
-		}
-		params["groupName"] = params["group"]
-		result, err = cp.nacosServer.ReqConfigApi("/v3/admin/cs/config/list", params, headers, http.MethodGet, cp.clientConfig.TimeoutMs)
-		if err != nil {
-			return nil, err
-		}
-		version = "v3"
-	}
-	var configPage model.ConfigPage
-	if version == "v2" {
-		err = json.Unmarshal([]byte(result), &configPage)
-	} else {
-		var configPageResult model.ConfigPageResult
-		err = json.Unmarshal([]byte(result), &configPageResult)
-		configPage = configPageResult.Data
-	}
+	result, err := cp.nacosServer.ReqConfigApi("/v3/admin/cs/config/list", params, headers, http.MethodGet, cp.clientConfig.TimeoutMs)
 	if err != nil {
 		return nil, err
 	}
+	var configPageResult model.ConfigPageResult
+	err = json.Unmarshal([]byte(result), &configPageResult)
+	if err != nil {
+		return nil, err
+	}
+	configPage := configPageResult.Data
 	return &configPage, nil
 }
 

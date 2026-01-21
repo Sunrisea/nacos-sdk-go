@@ -38,11 +38,21 @@ func (c *ClientDetectionResponse) GetResponseType() string {
 
 type ServerCheckResponse struct {
 	*Response
-	ConnectionId string `json:"connectionId"`
+	ConnectionId              string `json:"connectionId"`
+	SupportAbilityNegotiation bool   `json:"supportAbilityNegotiation"`
 }
 
 func (c *ServerCheckResponse) GetResponseType() string {
 	return "ServerCheckResponse"
+}
+
+// SetupAckResponse is the response for SetupAckRequest
+type SetupAckResponse struct {
+	*Response
+}
+
+func (c *SetupAckResponse) GetResponseType() string {
+	return "SetupAckResponse"
 }
 
 type InstanceResponse struct {

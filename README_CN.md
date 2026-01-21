@@ -6,19 +6,31 @@
 
 ## Nacos-sdk-go
 
-Nacos-sdk-go是Nacos的Go语言客户端，它实现了服务发现和动态配置的功能
+Nacos-sdk-go是Nacos的Go语言客户端，它实现了服务发现、动态配置和 **AI服务管理（MCP Server 和 A2A Agent）** 的功能。
+
+## 3.x 版本新特性
+
+- **AI 模块**: 支持 MCP (Model Context Protocol) Server 和 A2A (Agent-to-Agent) Agent 管理
+- **MCP Server**: 注册、发现和订阅 MCP 服务器，用于 AI 工具集成
+- **A2A Agent**: 管理 AI Agent 卡片，包含技能、端点和版本控制
+- **Redo 机制**: 增强的连接恢复机制，支持自动数据重新同步
 
 ## 使用限制
-支持Go>=v1.15版本
 
-支持Nacos>2.x版本
+支持 Go >= v1.24 版本
+
+支持 Nacos >= 3.x 版本
 
 ## 安装
+
 使用`go get`安装SDK：
+
 ```sh
 $ go get -u github.com/nacos-group/nacos-sdk-go/v2
 ```
+
 ## 快速使用
+
 * ClientConfig
 
 ```go
@@ -48,17 +60,17 @@ constant.ClientConfig{
 
 ```go
 constant.ServerConfig{
-	ContextPath string // Nacos的ContextPath，默认/nacos，在2.0中不需要设置
+	ContextPath string // Nacos的ContextPath，默认/nacos，在2.0+中不需要设置
 	IpAddr      string // Nacos的服务地址
 	Port        uint64 // Nacos的服务端口
-	Scheme      string // Nacos的服务地址前缀，默认http，在2.0中不需要设置
+	Scheme      string // Nacos的服务地址前缀，默认http，在2.0+中不需要设置
 	GrpcPort    uint64 // Nacos的 grpc 服务端口, 默认为 服务端口+1000, 不是必填
 }
 ```
 
 <b>Note：我们可以配置多个ServerConfig，客户端会对这些服务端做轮询请求</b>
 
-### Create client
+### 创建客户端
 
 ```go
 // 创建clientConfig
@@ -73,7 +85,7 @@ clientConfig := constant.ClientConfig{
 
 // 创建clientConfig的另一种方式
 clientConfig := *constant.NewClientConfig(
-    constant.WithNamespaceId("e525eafa-f7d7-4029-83d9-008937f9d468"), //当namespace是public时，此处填空字符串。
+    constant.WithNamespaceId("e525eafa-f7d7-4029-83d9-008937f9d468"), // 当namespace是public时，此处填空字符串。
     constant.WithTimeoutMs(5000),
     constant.WithNotLoadCacheAtStart(true),
     constant.WithLogDir("/tmp/nacos/log"),
@@ -83,49 +95,15 @@ clientConfig := *constant.NewClientConfig(
 
 // 至少一个ServerConfig
 serverConfigs := []constant.ServerConfig{
-    {
-        IpAddr:      "console1.nacos.io",
-        ContextPath: "/nacos",
-        Port:        80,
-        Scheme:      "http",
-    },
-    {
-    	IpAddr:      "console2.nacos.io",
-    	ContextPath: "/nacos",
-    	Port:        80,
-        Scheme:      "http",
-    },
-}
-
-// 创建serverConfig的另一种方式
-serverConfigs := []constant.ServerConfig{
     *constant.NewServerConfig(
         "console1.nacos.io",
-        80,
-        constant.WithScheme("http"),
-        constant.WithContextPath("/nacos"),
-    ),
-    *constant.NewServerConfig(
-        "console2.nacos.io",
-        80,
+        8848,
         constant.WithScheme("http"),
         constant.WithContextPath("/nacos"),
     ),
 }
 
 // 创建服务发现客户端
-_, _ := clients.CreateNamingClient(map[string]interface{}{
-	"serverConfigs": serverConfigs,
-	"clientConfig":  clientConfig,
-})
-
-// 创建动态配置客户端
-_, _ := clients.CreateConfigClient(map[string]interface{}{
-	"serverConfigs": serverConfigs,
-	"clientConfig":  clientConfig,
-})
-
-// 创建服务发现客户端的另一种方式 (推荐)
 namingClient, err := clients.NewNamingClient(
     vo.NacosClientParam{
         ClientConfig:  &clientConfig,
@@ -133,38 +111,23 @@ namingClient, err := clients.NewNamingClient(
     },
 )
 
-// 创建动态配置客户端的另一种方式 (推荐)
+// 创建动态配置客户端
 configClient, err := clients.NewConfigClient(
     vo.NacosClientParam{
         ClientConfig:  &clientConfig,
         ServerConfigs: serverConfigs,
     },
 )
-```
 
-### Create client for ACM
-https://help.aliyun.com/document_detail/130146.html
-
-```go
-cc := constant.ClientConfig{
-  Endpoint:    "acm.aliyun.com:8080",
-  NamespaceId: "e525eafa-f7d7-4029-83d9-008937f9d468",
-  RegionId:    "cn-shanghai",
-  AccessKey:   "LTAI4G8KxxxxxxxxxxxxxbwZLBr",
-  SecretKey:   "n5jTL9YxxxxxxxxxxxxaxmPLZV9",
-  OpenKMS:     true,
-  TimeoutMs:   5000,
-  LogLevel:    "debug",
-}
-
-// a more graceful way to create config client
-client, err := clients.NewConfigClient(
-  vo.NacosClientParam{
-    ClientConfig: &cc,
-  },
+// 创建AI客户端，用于MCP Server和Agent管理（3.x新增）
+aiClient, err := clients.NewAIClient(
+    vo.NacosClientParam{
+        ClientConfig:  &clientConfig,
+        ServerConfigs: serverConfigs,
+    },
 )
+defer aiClient.CloseClient()
 ```
-
 
 ### 服务发现
 
@@ -217,6 +180,7 @@ services, err := namingClient.GetService(vo.GetServiceParam{
 * 获取所有的实例列表：SelectAllInstances
 
 ```go
+
 // SelectAllInstance可以返回全部实例列表,包括healthy=false,enable=false,weight<=0
 instances, err := namingClient.SelectAllInstances(vo.SelectAllInstancesParam{
     ServiceName: "demo.go",
@@ -226,9 +190,10 @@ instances, err := namingClient.SelectAllInstances(vo.SelectAllInstancesParam{
 
 ```
 
-* 获取实例列表 ：SelectInstances
+* 获取实例列表：SelectInstances
 
 ```go
+
 // SelectInstances 只返回满足这些条件的实例列表：healthy=${HealthyOnly},enable=true 和weight>0
 instances, err := namingClient.SelectInstances(vo.SelectInstancesParam{
     ServiceName: "demo.go",
@@ -242,6 +207,7 @@ instances, err := namingClient.SelectInstances(vo.SelectInstancesParam{
 * 获取一个健康的实例（加权随机轮询）：SelectOneHealthyInstance
 
 ```go
+
 // SelectOneHealthyInstance将会按加权随机轮询的负载均衡策略返回一个健康的实例
 // 实例必须满足的条件：health=true,enable=true and weight>0
 instance, err := namingClient.SelectOneHealthyInstance(vo.SelectOneHealthInstanceParam{
@@ -284,14 +250,15 @@ err := namingClient.Unsubscribe(vo.SubscribeParam{
 
 ```
 
-* 获取服务名列表:GetAllServicesInfo
+* 获取服务名列表：GetAllServicesInfo
+
 ```go
 
 serviceInfos, err := namingClient.GetAllServicesInfo(vo.GetAllServiceInfoParam{
     NameSpace: "0e83cc81-9d8c-4bb8-a28a-ff703187543f",
     PageNo:   1,
     PageSize: 10,
-	}),
+})
 
 ```
 
@@ -304,7 +271,8 @@ serviceInfos, err := namingClient.GetAllServicesInfo(vo.GetAllServiceInfoParam{
 success, err := configClient.PublishConfig(vo.ConfigParam{
     DataId:  "dataId",
     Group:   "group",
-    Content: "hello world!222222"})
+    Content: "hello world!",
+})
 
 ```
 
@@ -314,7 +282,8 @@ success, err := configClient.PublishConfig(vo.ConfigParam{
 
 success, err = configClient.DeleteConfig(vo.ConfigParam{
     DataId: "dataId",
-    Group:  "group"})
+    Group:  "group",
+})
 
 ```
 
@@ -324,7 +293,8 @@ success, err = configClient.DeleteConfig(vo.ConfigParam{
 
 content, err := configClient.GetConfig(vo.ConfigParam{
     DataId: "dataId",
-    Group:  "group"})
+    Group:  "group",
+})
 
 ```
 
@@ -337,10 +307,11 @@ err := configClient.ListenConfig(vo.ConfigParam{
     Group:  "group",
     OnChange: func(namespace, group, dataId, data string) {
         fmt.Println("group:" + group + ", dataId:" + dataId + ", data:" + data)
-	},
+    },
 })
 
 ```
+
 * 取消配置监听：CancelListenConfig
 
 ```go
@@ -352,30 +323,218 @@ err := configClient.CancelListenConfig(vo.ConfigParam{
 
 ```
 
-* 搜索配置: SearchConfig
+* 搜索配置：SearchConfig
+
 ```go
-configPage,err := configClient.SearchConfig(vo.SearchConfigParam{
+
+configPage, err := configClient.SearchConfig(vo.SearchConfigParam{
     Search:   "blur",
     DataId:   "",
     Group:    "",
     PageNo:   1,
     PageSize: 10,
 })
+
 ```
-## 例子
-我们能从示例中学习如何使用Nacos go客户端
+
+### AI 服务管理（3.x 新增）
+
+AI 模块提供了 MCP (Model Context Protocol) Server 和 A2A (Agent-to-Agent) Agent 的管理能力。
+
+#### MCP Server 操作
+
+* 发布 MCP Server：ReleaseMcpServer
+
+```go
+
+serverSpec := model.NewMcpServerBasicInfo()
+serverSpec.Name = "demo-mcp-server"
+serverSpec.Description = "Demo MCP Server"
+serverSpec.Protocol = "mcp-sse"
+serverSpec.FrontProtocol = "mcp-sse"
+serverSpec.VersionDetail = &model.ServerVersionDetail{
+    Version: "v1.0.0",
+}
+
+toolSpec := &model.McpToolSpecification{
+    Tools: []model.McpTool{
+        {
+            Name:        "search",
+            Description: "搜索工具，用于查找信息",
+        },
+    },
+}
+
+endpointSpec := &model.McpEndpointSpec{
+    Type: constant.MCP_ENDPOINT_TYPE_REF,
+    Data: map[string]string{
+        "groupName":   "DEFAULT_GROUP",
+        "serviceName": "demo-mcp-service",
+    },
+}
+
+mcpId, err := aiClient.ReleaseMcpServer(vo.ReleaseMcpServerParam{
+    ServerSpec:      serverSpec,
+    ToolSpec:        toolSpec,
+    McpEndpointSpec: endpointSpec,
+})
+
+```
+
+* 获取 MCP Server：GetMcpServer
+
+```go
+
+mcpServer, err := aiClient.GetMcpServer(vo.GetMcpServerParam{
+    McpName: "demo-mcp-server",
+    Version: "v1.0.0",
+})
+
+```
+
+* 注册 MCP Server 端点：RegisterMcpServerEndpoint
+
+```go
+
+err := aiClient.RegisterMcpServerEndpoint(vo.RegisterMcpServerEndpointParam{
+    McpName: "demo-mcp-server",
+    Address: "192.168.1.100",
+    Port:    8080,
+    Version: "v1.0.0",
+})
+
+```
+
+* 注销 MCP Server 端点：DeregisterMcpServerEndpoint
+
+```go
+
+err := aiClient.DeregisterMcpServerEndpoint(vo.DeregisterMcpServerEndpointParam{
+    McpName: "demo-mcp-server",
+    Address: "192.168.1.100",
+    Port:    8080,
+})
+
+```
+
+* 订阅 MCP Server 变化：SubscribeMcpServer
+
+```go
+
+mcpServer, err := aiClient.SubscribeMcpServer(vo.SubscribeMcpServerParam{
+    McpName: "demo-mcp-server",
+    Version: "v1.0.0",
+    SubscribeCallback: func(mcpId, namespaceId, mcpName string, mcpServer model.McpServerDetailInfo) {
+        fmt.Printf("MCP Server 变化: %s, 端点数量: %d\n", mcpName, len(mcpServer.BackendEndpoints))
+    },
+})
+
+```
+
+#### A2A Agent 操作
+
+* 发布 Agent Card：ReleaseAgentCard
+
+```go
+
+agentCard := &a2a.AgentCard{
+    Name:            "demo-agent",
+    Version:         "v1.0.0",
+    ProtocolVersion: "0.2.1",
+    Description:     "Demo AI Agent",
+    URL:             "https://demo-agent.example.com",
+    Skills: []a2a.AgentSkill{
+        {
+            ID:          "search",
+            Name:        "搜索技能",
+            Description: "可以搜索信息",
+        },
+    },
+}
+
+err := aiClient.ReleaseAgentCard(vo.ReleaseAgentCardParam{
+    AgentCard:        agentCard,
+    RegistrationType: constant.A2A_ENDPOINT_TYPE_SERVICE,
+    SetAsLatest:      true,
+})
+
+```
+
+* 获取 Agent Card：GetAgentCard
+
+```go
+
+agentCardInfo, err := aiClient.GetAgentCard(vo.GetAgentCardParam{
+    AgentName:        "demo-agent",
+    Version:          "v1.0.0",
+    RegistrationType: constant.A2A_ENDPOINT_TYPE_URL,
+})
+
+```
+
+* 注册 Agent 端点：RegisterAgentEndpoint
+
+```go
+
+err := aiClient.RegisterAgentEndpoint(vo.RegisterAgentEndpointParam{
+    AgentName:  "demo-agent",
+    Address:    "192.168.1.100",
+    Port:       9090,
+    Path:       "/api/v1/agent",
+    Transport:  constant.A2A_ENDPOINT_DEFAULT_TRANSPORT,
+    SupportTLS: true,
+    Version:    "v1.0.0",
+})
+
+```
+
+* 注销 Agent 端点：DeregisterAgentEndpoint
+
+```go
+
+err := aiClient.DeregisterAgentEndpoint(vo.DeregisterAgentEndpointParam{
+    AgentName: "demo-agent",
+    Address:   "192.168.1.100",
+    Port:      9090,
+    Version:   "v1.0.0",
+})
+
+```
+
+* 订阅 Agent Card 变化：SubscribeAgentCard
+
+```go
+
+agentCardInfo, err := aiClient.SubscribeAgentCard(vo.SubscribeAgentCardParam{
+    AgentName: "demo-agent",
+    Version:   "v1.0.0",
+    SubscribeCallback: func(agentName string, agentCard model.AgentCardDetailInfo) {
+        fmt.Printf("Agent Card 变化: %s, 最新版本: %v\n", agentName, agentCard.LatestVersion)
+    },
+})
+
+```
+
+## 示例
+
+我们能从示例中学习如何使用Nacos go客户端：
+
 * [动态配置示例](./example/config)
 * [服务发现示例](./example/service)
+* [AI 示例](./example/ai)
 
 ## 文档
-Nacos open-api相关信息可以查看文档 [Nacos open-api wepsite](https://nacos.io/en-us/docs/open-api.html).
+
+Nacos open-api相关信息可以查看文档 [Nacos open-api website](https://nacos.io/en-us/docs/open-api.html).
 
 Nacos产品了解可以查看 [Nacos website](https://nacos.io/en-us/docs/what-is-nacos.html).
 
 ## 贡献代码
+
 我们非常欢迎大家为Nacos-sdk-go贡献代码. 贡献前请查看[CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## 联系我们
+
 * 加入Nacos-sdk-go钉钉群(23191211).
 * [Gitter](https://gitter.im/alibaba/nacos): Nacos即时聊天工具.
 * [Twitter](https://twitter.com/nacos2): 在Twitter上关注Nacos的最新动态.
@@ -385,5 +544,3 @@ Nacos产品了解可以查看 [Nacos website](https://nacos.io/en-us/docs/what-i
      * users-nacos@googlegroups.com: Nacos用户讨论组.
      * dev-nacos@googlegroups.com: Nacos开发者讨论组 (APIs, feature design, etc).
      * commits-nacos@googlegroups.com: Nacos commit提醒.
-
-

@@ -29,6 +29,12 @@ type IConnection interface {
 	getServerInfo() ServerInfo
 	setAbandon(flag bool)
 	getAbandon() bool
+	// Ability negotiation methods
+	SetAbilityTable(abilities map[string]bool)
+	GetAbilityTable() map[string]bool
+	IsAbilitiesSet() bool
+	SetAbandon(abandon bool)
+	GetConnectionAbility(abilityKey AbilityKey) AbilityStatus
 }
 
 type Connection struct {
@@ -36,6 +42,8 @@ type Connection struct {
 	connectionId string
 	abandon      bool
 	serverInfo   ServerInfo
+	abilityTable map[string]bool
+	abilitiesSet bool
 }
 
 func (c *Connection) getConnectionId() string {
@@ -56,4 +64,36 @@ func (c *Connection) getAbandon() bool {
 
 func (c *Connection) close() {
 	_ = c.conn.Close()
+}
+
+// SetAbilityTable sets the server's ability table
+func (c *Connection) SetAbilityTable(abilities map[string]bool) {
+	c.abilityTable = abilities
+	c.abilitiesSet = true
+}
+
+// GetAbilityTable returns the server's ability table
+func (c *Connection) GetAbilityTable() map[string]bool {
+	return c.abilityTable
+}
+
+// IsAbilitiesSet returns whether the ability table has been set
+func (c *Connection) IsAbilitiesSet() bool {
+	return c.abilitiesSet
+}
+
+// SetAbandon sets the abandon flag (exported version)
+func (c *Connection) SetAbandon(abandon bool) {
+	c.abandon = abandon
+}
+
+// GetConnectionAbility returns the status of a specific ability
+func (c *Connection) GetConnectionAbility(abilityKey AbilityKey) AbilityStatus {
+	if c.abilityTable == nil {
+		return AbilityStatusUnknown
+	}
+	if supported, ok := c.abilityTable[abilityKey.KeyName]; ok && supported {
+		return AbilityStatusSupported
+	}
+	return AbilityStatusNotSupported
 }

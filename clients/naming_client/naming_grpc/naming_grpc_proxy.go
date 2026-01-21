@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client/naming_cache"
+	naming_redo "github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client/redo"
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/nacos-group/nacos-sdk-go/v2/common/logger"
 	"github.com/nacos-group/nacos-sdk-go/v2/common/monitor"
@@ -39,7 +40,7 @@ type NamingGrpcProxy struct {
 	clientConfig      constant.ClientConfig
 	nacosServer       *nacos_server.NacosServer
 	rpcClient         rpc.IRpcClient
-	eventListener     *ConnectionEventListener
+	redoService       *naming_redo.NamingGrpcRedoService
 	serviceInfoHolder *naming_cache.ServiceInfoHolder
 }
 
@@ -76,8 +77,13 @@ func NewNamingGrpcProxy(ctx context.Context, clientCfg constant.ClientConfig, na
 		return &rpc_request.NotifySubscriberRequest{NamingRequest: &rpc_request.NamingRequest{}}
 	}, &rpc.NamingPushRequestHandler{ServiceInfoHolder: serviceInfoHolder})
 
-	srvProxy.eventListener = NewConnectionEventListener(&srvProxy)
-	rpcClient.RegisterConnectionListener(srvProxy.eventListener)
+	// Create redo service (proxy will be set after proxy is fully initialized)
+	srvProxy.redoService = naming_redo.NewNamingGrpcRedoService(nil, serviceInfoHolder)
+	srvProxy.redoService.SetProxy(&srvProxy)
+	srvProxy.redoService.Start()
+
+	// Register redo service as connection listener (it implements IConnectionEventListener)
+	rpcClient.RegisterConnectionListener(srvProxy.redoService)
 
 	return &srvProxy, nil
 }
@@ -94,11 +100,14 @@ func (proxy *NamingGrpcProxy) requestToServer(request rpc_request.IRequest) (rpc
 func (proxy *NamingGrpcProxy) RegisterInstance(serviceName string, groupName string, instance model.Instance) (bool, error) {
 	logger.Infof("register instance namespaceId:<%s>,serviceName:<%s> with instance:<%s>",
 		proxy.clientConfig.NamespaceId, serviceName, util.ToJsonString(instance))
-	proxy.eventListener.CacheInstanceForRedo(serviceName, groupName, instance)
+	proxy.redoService.CacheInstanceForRedo(serviceName, groupName, instance)
 	instanceRequest := rpc_request.NewInstanceRequest(proxy.clientConfig.NamespaceId, serviceName, groupName, "registerInstance", instance)
 	response, err := proxy.requestToServer(instanceRequest)
 	if err != nil {
 		return false, err
+	}
+	if response.IsSuccess() {
+		proxy.redoService.InstanceRegistered(serviceName, groupName)
 	}
 	return response.IsSuccess(), err
 }
@@ -107,11 +116,14 @@ func (proxy *NamingGrpcProxy) RegisterInstance(serviceName string, groupName str
 func (proxy *NamingGrpcProxy) BatchRegisterInstance(serviceName string, groupName string, instances []model.Instance) (bool, error) {
 	logger.Infof("batch register instance namespaceId:<%s>,serviceName:<%s> with instance:<%s>",
 		proxy.clientConfig.NamespaceId, serviceName, util.ToJsonString(instances))
-	proxy.eventListener.CacheInstancesForRedo(serviceName, groupName, instances)
+	proxy.redoService.CacheInstancesForRedo(serviceName, groupName, instances)
 	batchInstanceRequest := rpc_request.NewBatchInstanceRequest(proxy.clientConfig.NamespaceId, serviceName, groupName, "batchRegisterInstance", instances)
 	response, err := proxy.requestToServer(batchInstanceRequest)
 	if err != nil {
 		return false, err
+	}
+	if response.IsSuccess() {
+		proxy.redoService.InstanceRegistered(serviceName, groupName)
 	}
 	return response.IsSuccess(), err
 }
@@ -120,11 +132,15 @@ func (proxy *NamingGrpcProxy) BatchRegisterInstance(serviceName string, groupNam
 func (proxy *NamingGrpcProxy) DeregisterInstance(serviceName string, groupName string, instance model.Instance) (bool, error) {
 	logger.Infof("deregister instance namespaceId:<%s>,serviceName:<%s> with instance:<%s:%d@%s>",
 		proxy.clientConfig.NamespaceId, serviceName, instance.Ip, instance.Port, instance.ClusterName)
+	proxy.redoService.InstanceDeregister(serviceName, groupName)
 	instanceRequest := rpc_request.NewInstanceRequest(proxy.clientConfig.NamespaceId, serviceName, groupName, "deregisterInstance", instance)
 	response, err := proxy.requestToServer(instanceRequest)
-	proxy.eventListener.RemoveInstanceForRedo(serviceName, groupName, instance)
 	if err != nil {
 		return false, err
+	}
+	if response.IsSuccess() {
+		proxy.redoService.InstanceDeregistered(serviceName, groupName)
+		proxy.redoService.RemoveInstanceForRedo(serviceName, groupName)
 	}
 	return response.IsSuccess(), err
 }
@@ -169,14 +185,14 @@ func (proxy *NamingGrpcProxy) QueryInstancesOfService(serviceName, groupName, cl
 }
 
 func (proxy *NamingGrpcProxy) IsSubscribed(serviceName, groupName string, clusters string) bool {
-	return proxy.eventListener.IsSubscriberCached(util.GetServiceCacheKey(util.GetGroupName(serviceName, groupName), clusters))
+	return proxy.redoService.IsSubscriberCached(serviceName, groupName, clusters)
 }
 
 // Subscribe ...
 func (proxy *NamingGrpcProxy) Subscribe(serviceName, groupName string, clusters string) (model.Service, error) {
 	logger.Infof("Subscribe Service namespaceId:<%s>, serviceName:<%s>, groupName:<%s>, clusters:<%s>",
 		proxy.clientConfig.NamespaceId, serviceName, groupName, clusters)
-	proxy.eventListener.CacheSubscriberForRedo(util.GetGroupName(serviceName, groupName), clusters)
+	proxy.redoService.CacheSubscribeForRedo(serviceName, groupName, clusters)
 	request := rpc_request.NewSubscribeServiceRequest(proxy.clientConfig.NamespaceId, serviceName,
 		groupName, clusters, true)
 	request.Headers["app"] = proxy.clientConfig.AppName
@@ -185,6 +201,7 @@ func (proxy *NamingGrpcProxy) Subscribe(serviceName, groupName string, clusters 
 		return model.Service{}, err
 	}
 	subscribeServiceResponse := response.(*rpc_response.SubscribeServiceResponse)
+	proxy.redoService.SubscribeRegistered(serviceName, groupName, clusters)
 	return subscribeServiceResponse.ServiceInfo, nil
 }
 
@@ -192,13 +209,21 @@ func (proxy *NamingGrpcProxy) Subscribe(serviceName, groupName string, clusters 
 func (proxy *NamingGrpcProxy) Unsubscribe(serviceName, groupName, clusters string) error {
 	logger.Infof("Unsubscribe Service namespaceId:<%s>, serviceName:<%s>, groupName:<%s>, clusters:<%s>",
 		proxy.clientConfig.NamespaceId, serviceName, groupName, clusters)
-	proxy.eventListener.RemoveSubscriberForRedo(util.GetGroupName(serviceName, groupName), clusters)
+	proxy.redoService.SubscribeDeregister(serviceName, groupName, clusters)
 	_, err := proxy.requestToServer(rpc_request.NewSubscribeServiceRequest(proxy.clientConfig.NamespaceId, serviceName, groupName,
 		clusters, false))
-	return err
+	if err != nil {
+		return err
+	}
+	proxy.redoService.SubscribeDeregistered(serviceName, groupName, clusters)
+	proxy.redoService.RemoveSubscribeForRedo(serviceName, groupName, clusters)
+	return nil
 }
 
 func (proxy *NamingGrpcProxy) CloseClient() {
 	logger.Info("Close Nacos Go SDK Client...")
+	if proxy.redoService != nil {
+		proxy.redoService.Stop()
+	}
 	proxy.rpcClient.GetRpcClient().Shutdown()
 }

@@ -36,6 +36,7 @@ type RequestResource struct {
 const (
 	REQUEST_TYPE_CONFIG = "config"
 	REQUEST_TYPE_NAMING = "naming"
+	REQUEST_TYPE_AI     = "ai"
 )
 
 func BuildConfigResourceByRequest(request rpc_request.IRequest) RequestResource {
@@ -97,6 +98,15 @@ func BuildNamingResource(namespace, group, serviceName string) RequestResource {
 		namespace:   namespace,
 		group:       group,
 		resource:    serviceName,
+	}
+}
+
+func BuildAIResource(namespace, resource string) RequestResource {
+	return RequestResource{
+		requestType: REQUEST_TYPE_AI,
+		namespace:   namespace,
+		group:       "DEFAULT_GROUP",
+		resource:    resource,
 	}
 }
 

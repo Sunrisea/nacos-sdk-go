@@ -17,6 +17,41 @@
 package rpc_request
 
 type ClientAbilities struct {
+	RemoteAbility RemoteAbility `json:"remoteAbility"`
+	ConfigAbility ConfigAbility `json:"configAbility"`
+	NamingAbility NamingAbility `json:"namingAbility"`
+}
+
+// RemoteAbility represents remote connection abilities
+type RemoteAbility struct {
+	SupportRemoteConnection bool `json:"supportRemoteConnection"`
+}
+
+// ConfigAbility represents config service abilities
+type ConfigAbility struct {
+	SupportRemoteMetrics bool `json:"supportRemoteMetrics"`
+}
+
+// NamingAbility represents naming service abilities
+type NamingAbility struct {
+	SupportDeltaPush    bool `json:"supportDeltaPush"`
+	SupportRemoteMetric bool `json:"supportRemoteMetric"`
+}
+
+// NewClientAbilities creates a new ClientAbilities with default values
+func NewClientAbilities() ClientAbilities {
+	return ClientAbilities{
+		RemoteAbility: RemoteAbility{
+			SupportRemoteConnection: true,
+		},
+		ConfigAbility: ConfigAbility{
+			SupportRemoteMetrics: true,
+		},
+		NamingAbility: NamingAbility{
+			SupportDeltaPush:    true,
+			SupportRemoteMetric: true,
+		},
+	}
 }
 
 type InternalRequest struct {
@@ -86,6 +121,7 @@ type ConnectionSetupRequest struct {
 	Tenant          string            `json:"tenant"`
 	Labels          map[string]string `json:"labels"`
 	ClientAbilities ClientAbilities   `json:"clientAbilities"`
+	AbilityTable    map[string]bool   `json:"abilityTable,omitempty"`
 }
 
 func NewConnectionSetupRequest() *ConnectionSetupRequest {
@@ -96,4 +132,15 @@ func NewConnectionSetupRequest() *ConnectionSetupRequest {
 
 func (r *ConnectionSetupRequest) GetRequestType() string {
 	return "ConnectionSetupRequest"
+}
+
+// SetupAckRequest is the request sent by server to acknowledge the connection setup
+// and provide server's ability table
+type SetupAckRequest struct {
+	*InternalRequest
+	AbilityTable map[string]bool `json:"abilityTable,omitempty"`
+}
+
+func (r *SetupAckRequest) GetRequestType() string {
+	return "SetupAckRequest"
 }

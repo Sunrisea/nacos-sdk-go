@@ -636,3 +636,18 @@ func waitReconnect(timeoutMills int64, retryTimes *int, request rpc_request.IReq
 func (r *RpcClient) Name() string {
 	return r.name
 }
+
+// GetConnectionAbility returns the ability status for the current connection
+func (r *RpcClient) GetConnectionAbility(abilityKey AbilityKey) AbilityStatus {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+	if r.currentConnection == nil {
+		return AbilityStatusUnknown
+	}
+	return r.currentConnection.GetConnectionAbility(abilityKey)
+}
+
+// IsAbilitySupportedByServer checks if the server supports a specific ability
+func (r *RpcClient) IsAbilitySupportedByServer(abilityKey AbilityKey) bool {
+	return r.GetConnectionAbility(abilityKey) == AbilityStatusSupported
+}

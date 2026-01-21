@@ -22,7 +22,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"google.golang.org/grpc/credentials"
 	"io"
 	"log"
 	"os"
@@ -30,6 +29,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"google.golang.org/grpc/credentials"
 
 	"github.com/pkg/errors"
 
@@ -47,6 +48,7 @@ import (
 type GrpcClient struct {
 	*RpcClient
 	*constant.TLSConfig
+	recAbilityContext *RecAbilityContext
 }
 
 func NewGrpcClient(ctx context.Context, clientName string, nacosServer *nacos_server.NacosServer, tlsConfig *constant.TLSConfig) *GrpcClient {
@@ -61,6 +63,7 @@ func NewGrpcClient(ctx context.Context, clientName string, nacosServer *nacos_se
 			nacosServer:      nacosServer,
 			mux:              new(sync.Mutex),
 		}, tlsConfig,
+		NewRecAbilityContext(),
 	}
 	rpcClient.RpcClient.lastActiveTimestamp.Store(time.Now())
 	rpcClient.executeClient = rpcClient
@@ -227,9 +230,33 @@ func (c *GrpcClient) connectToServer(serverInfo ServerInfo) (IConnection, error)
 		return nil, errors.Errorf("create biStreamRequestClient failed , err:%v", err)
 	}
 	grpcConn := NewGrpcConnection(serverInfo, serverCheckResponse.ConnectionId, conn, client, biStreamRequestClient)
+
+	// Check if server supports ability negotiation
+	if serverCheckResponse.SupportAbilityNegotiation {
+		c.recAbilityContext.Reset(grpcConn)
+		grpcConn.SetAbilityTable(nil)
+	}
+
 	c.bindBiRequestStream(biStreamRequestClient, grpcConn)
 	err = c.sendConnectionSetupRequest(grpcConn)
-	return grpcConn, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait for ability negotiation if server supports it
+	if c.recAbilityContext.IsNeedToSync() {
+		err = c.recAbilityContext.AwaitAbilities(constant.ABILITY_NEGOTIATION_TIMEOUT_MS)
+		if err != nil {
+			logger.Warnf("ability negotiation timeout, connectionId=%s", grpcConn.getConnectionId())
+			// Continue anyway, but log the warning
+		}
+		if !c.recAbilityContext.Check(grpcConn) {
+			_ = conn.Close()
+			return nil, errors.New("ability negotiation failed: server didn't send ability table")
+		}
+	}
+
+	return grpcConn, nil
 }
 
 func (c *GrpcClient) sendConnectionSetupRequest(grpcConn *GrpcConnection) error {
@@ -238,6 +265,7 @@ func (c *GrpcClient) sendConnectionSetupRequest(grpcConn *GrpcConnection) error 
 	csr.Tenant = c.Tenant
 	csr.Labels = c.labels
 	csr.ClientAbilities = c.clientAbilities
+	csr.AbilityTable = SDKAbilityTable
 	err := grpcConn.biStreamSend(convertRequest(csr))
 	if err != nil {
 		logger.Warnf("send connectionSetupRequest error:%v", err)
@@ -318,6 +346,38 @@ func serverCheck(client nacos_grpc_service.RequestClient) (rpc_response.IRespons
 func (c *GrpcClient) handleServerRequest(p *nacos_grpc_service.Payload, grpcConn *GrpcConnection) {
 	client := c.GetRpcClient()
 	payLoadType := p.GetMetadata().GetType()
+
+	// Special handling for SetupAckRequest - ability negotiation
+	if payLoadType == "SetupAckRequest" {
+		var setupAckRequest rpc_request.SetupAckRequest
+		setupAckRequest.InternalRequest = rpc_request.NewInternalRequest()
+		err := json.Unmarshal(p.GetBody().Value, &setupAckRequest)
+		if err != nil {
+			logger.Errorf("%s Fail to json Unmarshal for SetupAckRequest, ackId->%s", grpcConn.getConnectionId(),
+				setupAckRequest.GetRequestId())
+			return
+		}
+		setupAckRequest.PutAllHeaders(p.GetMetadata().Headers)
+
+		// Release the ability context with server's ability table
+		if setupAckRequest.AbilityTable != nil {
+			c.recAbilityContext.Release(setupAckRequest.AbilityTable)
+		} else {
+			c.recAbilityContext.Release(make(map[string]bool))
+		}
+
+		// Send response
+		response := &rpc_response.SetupAckResponse{
+			Response: &rpc_response.Response{ResultCode: constant.RESPONSE_CODE_SUCCESS, Success: true},
+		}
+		response.SetRequestId(setupAckRequest.GetRequestId())
+		err = grpcConn.biStreamSend(convertResponse(response))
+		if err != nil && err != io.EOF {
+			logger.Warnf("%s Fail to send SetupAckResponse, ackId->%s", grpcConn.getConnectionId(),
+				setupAckRequest.GetRequestId())
+		}
+		return
+	}
 
 	handlerMapping, ok := client.serverRequestHandlerMapping.Load(payLoadType)
 	if !ok {

@@ -146,6 +146,38 @@ func registerClientResponses() {
 	registerClientResponse(func() IResponse {
 		return &ConfigRemoveResponse{Response: &Response{}}
 	})
+
+	// ========== AI Response Registrations ==========
+
+	// register QueryMcpServerResponse
+	registerClientResponse(func() IResponse {
+		return &QueryMcpServerResponse{Response: &Response{}}
+	})
+
+	// register ReleaseMcpServerResponse
+	registerClientResponse(func() IResponse {
+		return &ReleaseMcpServerResponse{Response: &Response{}}
+	})
+
+	// register McpServerEndpointResponse
+	registerClientResponse(func() IResponse {
+		return &McpServerEndpointResponse{Response: &Response{}}
+	})
+
+	// register QueryAgentCardResponse
+	registerClientResponse(func() IResponse {
+		return &QueryAgentCardResponse{Response: &Response{}}
+	})
+
+	// register ReleaseAgentCardResponse
+	registerClientResponse(func() IResponse {
+		return &ReleaseAgentCardResponse{Response: &Response{}}
+	})
+
+	// register AgentEndpointResponse
+	registerClientResponse(func() IResponse {
+		return &AgentEndpointResponse{Response: &Response{}}
+	})
 }
 
 // get grpc response status code with NA default.
