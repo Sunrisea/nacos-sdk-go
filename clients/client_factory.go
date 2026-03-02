@@ -20,6 +20,9 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/ai_client"
+	maintainer_ai "github.com/nacos-group/nacos-sdk-go/v2/clients/maintainer_client/ai"
+	maintainer_config "github.com/nacos-group/nacos-sdk-go/v2/clients/maintainer_client/config"
+	maintainer_naming "github.com/nacos-group/nacos-sdk-go/v2/clients/maintainer_client/naming"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
@@ -78,6 +81,48 @@ func NewAIClient(param vo.NacosClientParam) (iClient ai_client.IAIClient, err er
 		return
 	}
 	iClient = aiClient
+	return
+}
+
+// NewNamingMaintainerClient creates a naming maintainer client for admin operations.
+func NewNamingMaintainerClient(param vo.NacosClientParam) (iClient maintainer_naming.INamingMaintainerClient, err error) {
+	nacosClient, err := setConfig(param)
+	if err != nil {
+		return
+	}
+	client, err := maintainer_naming.NewNamingMaintainerClient(nacosClient, param.RamCredentialProvider)
+	if err != nil {
+		return
+	}
+	iClient = client
+	return
+}
+
+// NewConfigMaintainerClient creates a config maintainer client for admin operations.
+func NewConfigMaintainerClient(param vo.NacosClientParam) (iClient maintainer_config.IConfigMaintainerClient, err error) {
+	nacosClient, err := setConfig(param)
+	if err != nil {
+		return
+	}
+	client, err := maintainer_config.NewConfigMaintainerClient(nacosClient, param.RamCredentialProvider)
+	if err != nil {
+		return
+	}
+	iClient = client
+	return
+}
+
+// NewAiMaintainerClient creates an AI maintainer client for admin operations.
+func NewAiMaintainerClient(param vo.NacosClientParam) (iClient maintainer_ai.IAiMaintainerClient, err error) {
+	nacosClient, err := setConfig(param)
+	if err != nil {
+		return
+	}
+	client, err := maintainer_ai.NewAiMaintainerClient(nacosClient, param.RamCredentialProvider)
+	if err != nil {
+		return
+	}
+	iClient = client
 	return
 }
 

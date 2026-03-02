@@ -110,6 +110,17 @@ func BuildAIResource(namespace, resource string) RequestResource {
 	}
 }
 
+// BuildAdminResource builds a RequestResource for admin API calls.
+// Admin APIs reuse the config-type signing logic.
+func BuildAdminResource(namespace, group, resource string) RequestResource {
+	return RequestResource{
+		requestType: REQUEST_TYPE_CONFIG,
+		namespace:   namespace,
+		group:       group,
+		resource:    resource,
+	}
+}
+
 type AuthClient interface {
 	Login() (bool, error)
 	GetSecurityInfo(resource RequestResource) map[string]string

@@ -17,6 +17,7 @@
 package nacos_server
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"math/rand"
@@ -186,6 +187,78 @@ func (server *NacosServer) callServer(api string, params map[string]string, meth
 	}
 }
 
+func (server *NacosServer) callAdminServer(api string, params map[string]string, newHeaders map[string]string,
+	body []byte, method string, curServer string, contextPath string, timeoutMS uint64) (result string, err error) {
+	start := time.Now()
+	if contextPath == "" {
+		contextPath = constant.WEB_CONTEXT
+	}
+
+	serverUrl := curServer + contextPath + api
+
+	headers := map[string][]string{}
+	for k, v := range newHeaders {
+		if k != "accessKey" && k != "secretKey" {
+			headers[k] = []string{v}
+		}
+	}
+	headers["Client-Version"] = []string{constant.CLIENT_VERSION}
+	headers["User-Agent"] = []string{constant.CLIENT_VERSION}
+	headers["Connection"] = []string{"Keep-Alive"}
+	uid, err := uuid.NewV4()
+	if err != nil {
+		return
+	}
+	headers["RequestId"] = []string{uid.String()}
+	headers["Request-Module"] = []string{"Maintainer"}
+
+	var response *http.Response
+
+	if body != nil {
+		headers["Content-Type"] = []string{"application/json;charset=utf-8"}
+		queryString := util.GetUrlFormedMap(params)
+		fullUrl := serverUrl
+		if queryString != "" {
+			if strings.Contains(fullUrl, "?") {
+				fullUrl += "&" + queryString
+			} else {
+				fullUrl += "?" + queryString
+			}
+		}
+		var req *http.Request
+		req, err = http.NewRequest(method, fullUrl, bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		for k, v := range headers {
+			req.Header[k] = v
+		}
+		client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+		response, err = client.Do(req)
+	} else {
+		headers["Content-Type"] = []string{"application/x-www-form-urlencoded;charset=utf-8"}
+		response, err = server.httpAgent.Request(method, serverUrl, headers, timeoutMS, params)
+	}
+
+	monitor.GetConfigRequestMonitor(method, serverUrl, util.GetStatusCode(response)).Observe(float64(time.Now().Nanosecond() - start.Nanosecond()))
+	if err != nil {
+		return
+	}
+	var respBytes []byte
+	respBytes, err = io.ReadAll(response.Body)
+	defer response.Body.Close()
+	if err != nil {
+		return
+	}
+	result = string(respBytes)
+	if response.StatusCode == constant.RESPONSE_CODE_SUCCESS {
+		return
+	} else {
+		err = nacos_error.NewNacosError(strconv.Itoa(response.StatusCode), result, nil)
+		return
+	}
+}
+
 func (server *NacosServer) ReqConfigApi(api string, params map[string]string, headers map[string]string, method string, timeoutMS uint64) (string, error) {
 	srvs := server.serverList
 	if srvs == nil || len(srvs) == 0 {
@@ -248,6 +321,47 @@ func (server *NacosServer) ReqApi(api string, params map[string]string, method s
 				return result, nil
 			}
 			logger.Errorf("api<%s>,method:<%s>, params:<%s>, call domain error:<%+v> , result:<%s>", api, method, util.ToJsonString(params), err, result)
+			index = (index + i) % len(srvs)
+		}
+	}
+	return "", errors.Wrapf(err, "retry %d times request failed!", constant.REQUEST_DOMAIN_RETRY_TIME)
+}
+
+func (server *NacosServer) ReqAdminApi(api string, params map[string]string, headers map[string]string,
+	body []byte, method string, resource security.RequestResource, timeoutMS uint64) (string, error) {
+	srvs := server.serverList
+	if srvs == nil || len(srvs) == 0 {
+		return "", errors.New("server list is empty")
+	}
+
+	if params == nil {
+		params = make(map[string]string)
+	}
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+
+	server.InjectSecurityInfo(params, resource)
+
+	var err error
+	var result string
+	if len(srvs) == 1 {
+		for i := 0; i < constant.REQUEST_DOMAIN_RETRY_TIME; i++ {
+			result, err = server.callAdminServer(api, params, headers, body, method, getAddress(srvs[0]), srvs[0].ContextPath, timeoutMS)
+			if err == nil {
+				return result, nil
+			}
+			logger.Errorf("admin api<%s>,method:<%s>, params:<%s>, call domain error:<%+v> , result:<%s>", api, method, util.ToJsonString(params), err, result)
+		}
+	} else {
+		index := rand.Intn(len(srvs))
+		for i := 1; i <= len(srvs); i++ {
+			curServer := srvs[index]
+			result, err = server.callAdminServer(api, params, headers, body, method, getAddress(curServer), curServer.ContextPath, timeoutMS)
+			if err == nil {
+				return result, nil
+			}
+			logger.Errorf("[ERROR] admin api<%s>,method:<%s>, params:<%s>, call domain error:<%+v> , result:<%s> \n", api, method, util.ToJsonString(params), err, result)
 			index = (index + i) % len(srvs)
 		}
 	}

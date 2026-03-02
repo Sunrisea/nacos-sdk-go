@@ -6,13 +6,14 @@
 
 ## Nacos-sdk-go
 
-Nacos-sdk-go for Go client allows you to access Nacos service. It supports service discovery, dynamic configuration, and **AI service management (MCP Server & A2A Agent)**.
+Nacos-sdk-go for Go client allows you to access Nacos service. It supports service discovery, dynamic configuration, **AI service management (MCP Server & A2A Agent)**, and **Maintainer operations (admin/control plane)**.
 
 ## What's New in 3.x
 
 - **AI Module**: Support for MCP (Model Context Protocol) Server and A2A (Agent-to-Agent) Agent management
 - **MCP Server**: Register, discover, and subscribe to MCP servers for AI tool integration
 - **A2A Agent**: Manage AI agent cards with skills, endpoints, and version control
+- **Maintainer Client**: Admin/control plane client for server management via `/v3/admin/` HTTP APIs, covering core operations, config management, naming management, and AI management
 - **Redo Mechanism**: Enhanced connection recovery with automatic data re-synchronization
 
 ## Requirements
@@ -132,6 +133,31 @@ aiClient, err := clients.NewAIClient(
     },
 )
 defer aiClient.CloseClient()
+
+// Create maintainer clients for admin/control plane operations (New in 3.x)
+namingMaintainerClient, err := clients.NewNamingMaintainerClient(
+    vo.NacosClientParam{
+        ClientConfig:  &clientConfig,
+        ServerConfigs: serverConfigs,
+    },
+)
+defer namingMaintainerClient.CloseClient()
+
+configMaintainerClient, err := clients.NewConfigMaintainerClient(
+    vo.NacosClientParam{
+        ClientConfig:  &clientConfig,
+        ServerConfigs: serverConfigs,
+    },
+)
+defer configMaintainerClient.CloseClient()
+
+aiMaintainerClient, err := clients.NewAiMaintainerClient(
+    vo.NacosClientParam{
+        ClientConfig:  &clientConfig,
+        ServerConfigs: serverConfigs,
+    },
+)
+defer aiMaintainerClient.CloseClient()
 
 ```
 
@@ -521,6 +547,148 @@ agentCardInfo, err := aiClient.SubscribeAgentCard(vo.SubscribeAgentCardParam{
 
 ```
 
+### Maintainer Operations (New in 3.x)
+
+The Maintainer module provides admin/control plane operations for Nacos server management via HTTP Admin APIs. It offers three specialized clients that all inherit core management capabilities:
+
+- **NamingMaintainerClient**: Core + Naming admin operations (service/instance/cluster management)
+- **ConfigMaintainerClient**: Core + Config admin operations (config CRUD/history/beta/clone)
+- **AiMaintainerClient**: Core + AI admin operations (MCP Server & A2A Agent management)
+
+#### Core Operations (available in all maintainer clients)
+
+```go
+
+// Server health checks
+state, err := client.GetServerState()
+alive, err := client.Liveness()
+ready, err := client.Readiness()
+
+// Cluster management
+nodes, err := client.ListClusterNodes("", "")
+metrics, err := client.GetClusterLoaderMetrics()
+conns, err := client.GetCurrentClients()
+
+// Namespace CRUD
+ok, err := client.CreateNamespace(vo.CreateNamespaceParam{
+    NamespaceId:   "my-namespace",
+    NamespaceName: "My Namespace",
+    NamespaceDesc: "Description",
+})
+ns, err := client.GetNamespace("my-namespace")
+ok, err = client.UpdateNamespace(vo.UpdateNamespaceParam{
+    NamespaceId:   "my-namespace",
+    NamespaceName: "Updated Name",
+})
+ok, err = client.DeleteNamespace("my-namespace")
+
+```
+
+#### Config Maintainer Operations
+
+```go
+
+// Config CRUD
+ok, err := configMaintainerClient.PublishConfig(vo.MaintainerPublishConfigParam{
+    DataId:  "app.properties",
+    Group:   "DEFAULT_GROUP",
+    Content: "server.port=8080",
+    Type:    "properties",
+})
+
+cfg, err := configMaintainerClient.GetConfig(vo.MaintainerConfigParam{
+    DataId: "app.properties",
+    Group:  "DEFAULT_GROUP",
+})
+
+// Search configs
+result, err := configMaintainerClient.SearchConfig(vo.MaintainerSearchConfigParam{
+    Search: "blur", DataId: "app*", PageNo: 1, PageSize: 10,
+})
+
+// Config history
+history, err := configMaintainerClient.ListConfigHistory(vo.ListConfigHistoryParam{
+    DataId: "app.properties", Group: "DEFAULT_GROUP", PageNo: 1, PageSize: 10,
+})
+
+// Beta config
+ok, err = configMaintainerClient.PublishBetaConfig(vo.PublishBetaConfigParam{
+    DataId: "app.properties", Group: "DEFAULT_GROUP",
+    Content: "beta.enabled=true", BetaIps: "10.0.0.1,10.0.0.2",
+})
+
+```
+
+#### Naming Maintainer Operations
+
+```go
+
+// Service CRUD
+result, err := namingMaintainerClient.CreateService(vo.MaintainerServiceParam{
+    NamespaceId: "my-namespace", GroupName: "DEFAULT_GROUP",
+    ServiceName: "my-service",   Ephemeral: false,
+    ProtectThreshold: 0.5,
+})
+
+// Instance management
+result, err = namingMaintainerClient.RegisterInstance(vo.MaintainerInstanceParam{
+    NamespaceId: "my-namespace", GroupName: "DEFAULT_GROUP",
+    ServiceName: "my-service",   Ip: "10.0.0.1", Port: 8080,
+    Weight: 1.0, Healthy: true, Enabled: true,
+})
+
+instances, err := namingMaintainerClient.ListInstances(vo.ListInstancesParam{
+    NamespaceId: "my-namespace", GroupName: "DEFAULT_GROUP",
+    ServiceName: "my-service",
+})
+
+// Client info
+clientList, err := namingMaintainerClient.GetClientList()
+clientDetail, err := namingMaintainerClient.GetClientDetail(clientList[0])
+
+// Metrics
+metrics, err := namingMaintainerClient.GetMetrics(false)
+
+```
+
+#### AI Maintainer Operations
+
+```go
+
+// MCP Server CRUD
+result, err := aiMaintainerClient.CreateMcpServer(vo.CreateMcpServerParam{
+    McpName: "my-mcp-server",
+    ServerSpec: map[string]interface{}{
+        "name": "my-mcp-server", "protocol": "HTTP",
+        "versionDetail": map[string]interface{}{"version": "1.0.0"},
+    },
+    EndpointSpec: map[string]interface{}{
+        "type": "DIRECT",
+        "data": map[string]string{"address": "127.0.0.1", "port": "9090"},
+    },
+})
+
+mcpServers, err := aiMaintainerClient.ListMcpServer(vo.ListMcpServerParam{
+    PageNo: 1, PageSize: 10,
+})
+
+// A2A Agent CRUD
+ok, err := aiMaintainerClient.RegisterAgent(vo.RegisterAgentParam{
+    AgentName: "my-agent",
+    AgentCard: map[string]interface{}{
+        "name": "my-agent", "version": "1.0.0",
+        "protocolVersion": "0.2.0",
+        "url": "http://localhost:8080/a2a",
+        "preferredTransport": "httpPost",
+    },
+})
+
+agents, err := aiMaintainerClient.ListAgentCards(vo.ListAgentCardsParam{
+    PageNo: 1, PageSize: 10,
+})
+
+```
+
 ## Example
 
 We can run example to learn how to use nacos go client.
@@ -528,6 +696,7 @@ We can run example to learn how to use nacos go client.
 * [Config Example](./example/config)
 * [Naming Example](./example/service)
 * [AI Example](./example/ai)
+* [Maintainer Example](./example/maintainer)
 
 ## Documentation
 

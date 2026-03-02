@@ -6,13 +6,14 @@
 
 ## Nacos-sdk-go
 
-Nacos-sdk-go是Nacos的Go语言客户端，它实现了服务发现、动态配置和 **AI服务管理（MCP Server 和 A2A Agent）** 的功能。
+Nacos-sdk-go是Nacos的Go语言客户端，它实现了服务发现、动态配置、**AI服务管理（MCP Server 和 A2A Agent）** 和 **Maintainer 管控面操作** 的功能。
 
 ## 3.x 版本新特性
 
 - **AI 模块**: 支持 MCP (Model Context Protocol) Server 和 A2A (Agent-to-Agent) Agent 管理
 - **MCP Server**: 注册、发现和订阅 MCP 服务器，用于 AI 工具集成
 - **A2A Agent**: 管理 AI Agent 卡片，包含技能、端点和版本控制
+- **Maintainer Client**: 管控面客户端，通过 `/v3/admin/` HTTP API 进行服务端管理，覆盖核心操作、配置管理、服务管理和 AI 管理
 - **Redo 机制**: 增强的连接恢复机制，支持自动数据重新同步
 
 ## 使用限制
@@ -127,6 +128,31 @@ aiClient, err := clients.NewAIClient(
     },
 )
 defer aiClient.CloseClient()
+
+// 创建Maintainer客户端，用于管控面操作（3.x新增）
+namingMaintainerClient, err := clients.NewNamingMaintainerClient(
+    vo.NacosClientParam{
+        ClientConfig:  &clientConfig,
+        ServerConfigs: serverConfigs,
+    },
+)
+defer namingMaintainerClient.CloseClient()
+
+configMaintainerClient, err := clients.NewConfigMaintainerClient(
+    vo.NacosClientParam{
+        ClientConfig:  &clientConfig,
+        ServerConfigs: serverConfigs,
+    },
+)
+defer configMaintainerClient.CloseClient()
+
+aiMaintainerClient, err := clients.NewAiMaintainerClient(
+    vo.NacosClientParam{
+        ClientConfig:  &clientConfig,
+        ServerConfigs: serverConfigs,
+    },
+)
+defer aiMaintainerClient.CloseClient()
 ```
 
 ### 服务发现
@@ -515,6 +541,148 @@ agentCardInfo, err := aiClient.SubscribeAgentCard(vo.SubscribeAgentCardParam{
 
 ```
 
+### Maintainer 管控面操作（3.x 新增）
+
+Maintainer 模块提供了通过 HTTP Admin API 进行 Nacos 服务端管理的管控面操作能力。它提供三个专用客户端，均继承核心管理能力：
+
+- **NamingMaintainerClient**：核心 + 服务管理操作（服务/实例/集群管理）
+- **ConfigMaintainerClient**：核心 + 配置管理操作（配置增删改查/历史/灰度/克隆）
+- **AiMaintainerClient**：核心 + AI 管理操作（MCP Server 和 A2A Agent 管理）
+
+#### 核心操作（所有 Maintainer 客户端通用）
+
+```go
+
+// 服务端健康检查
+state, err := client.GetServerState()
+alive, err := client.Liveness()
+ready, err := client.Readiness()
+
+// 集群管理
+nodes, err := client.ListClusterNodes("", "")
+metrics, err := client.GetClusterLoaderMetrics()
+conns, err := client.GetCurrentClients()
+
+// 命名空间增删改查
+ok, err := client.CreateNamespace(vo.CreateNamespaceParam{
+    NamespaceId:   "my-namespace",
+    NamespaceName: "我的命名空间",
+    NamespaceDesc: "描述信息",
+})
+ns, err := client.GetNamespace("my-namespace")
+ok, err = client.UpdateNamespace(vo.UpdateNamespaceParam{
+    NamespaceId:   "my-namespace",
+    NamespaceName: "更新后的名称",
+})
+ok, err = client.DeleteNamespace("my-namespace")
+
+```
+
+#### 配置管理操作
+
+```go
+
+// 配置增删改查
+ok, err := configMaintainerClient.PublishConfig(vo.MaintainerPublishConfigParam{
+    DataId:  "app.properties",
+    Group:   "DEFAULT_GROUP",
+    Content: "server.port=8080",
+    Type:    "properties",
+})
+
+cfg, err := configMaintainerClient.GetConfig(vo.MaintainerConfigParam{
+    DataId: "app.properties",
+    Group:  "DEFAULT_GROUP",
+})
+
+// 搜索配置
+result, err := configMaintainerClient.SearchConfig(vo.MaintainerSearchConfigParam{
+    Search: "blur", DataId: "app*", PageNo: 1, PageSize: 10,
+})
+
+// 配置历史
+history, err := configMaintainerClient.ListConfigHistory(vo.ListConfigHistoryParam{
+    DataId: "app.properties", Group: "DEFAULT_GROUP", PageNo: 1, PageSize: 10,
+})
+
+// 灰度配置
+ok, err = configMaintainerClient.PublishBetaConfig(vo.PublishBetaConfigParam{
+    DataId: "app.properties", Group: "DEFAULT_GROUP",
+    Content: "beta.enabled=true", BetaIps: "10.0.0.1,10.0.0.2",
+})
+
+```
+
+#### 服务管理操作
+
+```go
+
+// 服务增删改查
+result, err := namingMaintainerClient.CreateService(vo.MaintainerServiceParam{
+    NamespaceId: "my-namespace", GroupName: "DEFAULT_GROUP",
+    ServiceName: "my-service",   Ephemeral: false,
+    ProtectThreshold: 0.5,
+})
+
+// 实例管理
+result, err = namingMaintainerClient.RegisterInstance(vo.MaintainerInstanceParam{
+    NamespaceId: "my-namespace", GroupName: "DEFAULT_GROUP",
+    ServiceName: "my-service",   Ip: "10.0.0.1", Port: 8080,
+    Weight: 1.0, Healthy: true, Enabled: true,
+})
+
+instances, err := namingMaintainerClient.ListInstances(vo.ListInstancesParam{
+    NamespaceId: "my-namespace", GroupName: "DEFAULT_GROUP",
+    ServiceName: "my-service",
+})
+
+// 客户端信息
+clientList, err := namingMaintainerClient.GetClientList()
+clientDetail, err := namingMaintainerClient.GetClientDetail(clientList[0])
+
+// 指标信息
+metrics, err := namingMaintainerClient.GetMetrics(false)
+
+```
+
+#### AI 管理操作
+
+```go
+
+// MCP Server 增删改查
+result, err := aiMaintainerClient.CreateMcpServer(vo.CreateMcpServerParam{
+    McpName: "my-mcp-server",
+    ServerSpec: map[string]interface{}{
+        "name": "my-mcp-server", "protocol": "HTTP",
+        "versionDetail": map[string]interface{}{"version": "1.0.0"},
+    },
+    EndpointSpec: map[string]interface{}{
+        "type": "DIRECT",
+        "data": map[string]string{"address": "127.0.0.1", "port": "9090"},
+    },
+})
+
+mcpServers, err := aiMaintainerClient.ListMcpServer(vo.ListMcpServerParam{
+    PageNo: 1, PageSize: 10,
+})
+
+// A2A Agent 增删改查
+ok, err := aiMaintainerClient.RegisterAgent(vo.RegisterAgentParam{
+    AgentName: "my-agent",
+    AgentCard: map[string]interface{}{
+        "name": "my-agent", "version": "1.0.0",
+        "protocolVersion": "0.2.0",
+        "url": "http://localhost:8080/a2a",
+        "preferredTransport": "httpPost",
+    },
+})
+
+agents, err := aiMaintainerClient.ListAgentCards(vo.ListAgentCardsParam{
+    PageNo: 1, PageSize: 10,
+})
+
+```
+
 ## 示例
 
 我们能从示例中学习如何使用Nacos go客户端：
@@ -522,6 +690,7 @@ agentCardInfo, err := aiClient.SubscribeAgentCard(vo.SubscribeAgentCardParam{
 * [动态配置示例](./example/config)
 * [服务发现示例](./example/service)
 * [AI 示例](./example/ai)
+* [Maintainer 管控面示例](./example/maintainer)
 
 ## 文档
 
