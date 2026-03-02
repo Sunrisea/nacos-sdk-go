@@ -74,20 +74,18 @@ func (c *CoreMaintainerClient) GetServerState() (map[string]string, error) {
 }
 
 func (c *CoreMaintainerClient) Liveness() (bool, error) {
-	resp, err := c.Proxy.ReqApi(constant.AdminCoreStatePath+"/liveness", nil, http.MethodGet, remote.BuildEmptyResource())
+	_, err := c.Proxy.ReqApi(constant.AdminCoreStatePath+"/liveness", nil, http.MethodGet, remote.BuildEmptyResource())
 	if err != nil {
 		return false, err
 	}
-	_ = resp
 	return true, nil
 }
 
 func (c *CoreMaintainerClient) Readiness() (bool, error) {
-	resp, err := c.Proxy.ReqApi(constant.AdminCoreStatePath+"/readiness", nil, http.MethodGet, remote.BuildEmptyResource())
+	_, err := c.Proxy.ReqApi(constant.AdminCoreStatePath+"/readiness", nil, http.MethodGet, remote.BuildEmptyResource())
 	if err != nil {
 		return false, err
 	}
-	_ = resp
 	return true, nil
 }
 

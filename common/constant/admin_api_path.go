@@ -36,8 +36,7 @@ const (
 	AdminCoreClusterPath   = "/v3/admin/core/cluster"
 	AdminCoreOpsPath       = "/v3/admin/core/ops"
 	AdminCoreNamespacePath = "/v3/admin/core/namespace"
-	AdminCoreStatePath     = "/v3/admin/core/state"
-	AdminCorePluginPath    = "/v3/admin/core/plugin"
+	AdminCoreStatePath = "/v3/admin/core/state"
 
 	// AI Admin API paths
 	AdminAiMcpPath = "/v3/admin/ai/mcp"

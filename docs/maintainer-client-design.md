@@ -62,7 +62,7 @@ Go SDK 需要对标 Java `nacos/maintainer-client` 模块的功能进行实现�
 | 组件 | 说明 |
 |------|------|
 | `MaintainerHttpProxy` | Admin API 专用 HTTP 代理，封装请求构建、JSON body、鉴权、重试 |
-| `CoreMaintainerClient` | Core 管理实现（namespace、cluster、loader、health、plugin） |
+| `CoreMaintainerClient` | Core 管理实现（namespace、cluster、loader、health、ops） |
 | `NamingMaintainerClient` | Naming 管理实现（service、instance、client、health） |
 | `ConfigMaintainerClient` | Config 管理实现（CRUD、history、beta、listener、ops） |
 | `AiMaintainerClient` | AI 管理实现（MCP server、A2A agent） |
@@ -237,6 +237,10 @@ func NewMaintainerHttpProxy(ctx context.Context, serverCfgs []constant.ServerCon
 func (p *MaintainerHttpProxy) ReqApi(api string, params map[string]string,
     method string, resource security.RequestResource) (string, error)
 
+// ReqApiWithHeaders 发送带自定义 headers 的 form-urlencoded 请求
+func (p *MaintainerHttpProxy) ReqApiWithHeaders(api string, params map[string]string,
+    headers map[string]string, method string, resource security.RequestResource) (string, error)
+
 // ReqApiWithJsonBody 发送 JSON body 请求（POST/PUT）
 func (p *MaintainerHttpProxy) ReqApiWithJsonBody(api string, params map[string]string,
     body interface{}, method string, resource security.RequestResource) (string, error)
@@ -294,17 +298,12 @@ type ICoreMaintainerClient interface {
     DeleteNamespace(namespaceId string) (bool, error)
     CheckNamespaceIdExist(namespaceId string) (bool, error)
 
-    // --- 插件管理 ---
-    ListPlugins(pluginType string) ([]map[string]interface{}, error)
-    GetPluginDetail(pluginType, pluginName string) (map[string]interface{}, error)
-    UpdatePluginStatus(pluginType, pluginName string, enabled bool) error
-    UpdatePluginConfig(pluginType, pluginName string, config map[string]string) error
-    GetPluginAvailability(pluginType, pluginName string) (map[string]bool, error)
-
     // --- 生命周期 ---
     CloseClient()
 }
 ```
+
+> **注意**：初始设计中包含 5 个 Plugin 管理方法（ListPlugins、GetPluginDetail 等），经与 Java SDK 能力对齐后已移除。
 
 #### 5.3.2 INamingMaintainerClient
 
@@ -347,6 +346,9 @@ type INamingMaintainerClient interface {
     UpdateInstanceHealthStatus(param vo.UpdateInstanceHealthParam) (string, error)
     GetHealthCheckers() (map[string]interface{}, error)
     UpdateCluster(param vo.UpdateClusterParam) (string, error)
+
+    // --- Ops ---
+    SetLogLevel(logName, logLevel string) (string, error)
 }
 ```
 
@@ -365,9 +367,8 @@ type IConfigMaintainerClient interface {
     DeleteConfig(param vo.MaintainerConfigParam) (bool, error)
     DeleteConfigs(ids []int64) (bool, error)
 
-    // --- 列表/搜索 ---
-    ListConfigs(param vo.SearchConfigParam) (model.Page[model.ConfigBasicInfo], error)
-    SearchConfigs(param vo.SearchConfigParam) (model.Page[model.ConfigBasicInfo], error)
+    // --- 搜索 ---
+    SearchConfig(param vo.MaintainerSearchConfigParam) (model.Page[model.ConfigBasicInfo], error)
     GetConfigListByNamespace(namespaceId string) ([]model.ConfigBasicInfo, error)
 
     // --- Listener ---
@@ -380,15 +381,16 @@ type IConfigMaintainerClient interface {
     // --- Beta ---
     PublishBetaConfig(param vo.PublishBetaConfigParam) (bool, error)
     StopBeta(param vo.StopBetaParam) (bool, error)
-    QueryBeta(param vo.QueryBetaParam) (model.ConfigDetailInfo, error)
+    QueryBeta(param vo.StopBetaParam) (model.ConfigGrayInfo, error)
 
     // --- History ---
     ListConfigHistory(param vo.ListConfigHistoryParam) (model.Page[model.ConfigHistoryInfo], error)
     GetConfigHistoryInfo(param vo.GetConfigHistoryParam) (model.ConfigHistoryInfo, error)
-    GetPreviousConfigHistoryInfo(param vo.GetConfigHistoryParam) (model.ConfigHistoryInfo, error)
+    GetPreviousConfigHistoryInfo(dataId, group, namespaceId string, id int64) (model.ConfigHistoryInfo, error)
 
     // --- Ops ---
-    UpdateLocalCacheFromStore() error
+    UpdateLocalCacheFromStore() (string, error)
+    SetLogLevel(logName, logLevel string) (string, error)
 }
 ```
 
@@ -409,13 +411,13 @@ type IAiMaintainerClient interface {
     DeleteMcpServer(param vo.DeleteMcpServerParam) (bool, error)
 
     // --- A2A Agent ---
-    RegisterAgent(param vo.RegisterAgentParam) error
-    GetAgentCard(param vo.GetMaintainerAgentCardParam) (model.AgentCardInfo, error)
-    UpdateAgentCard(param vo.UpdateAgentCardParam) error
-    DeleteAgent(param vo.DeleteAgentParam) error
-    ListAllVersionOfAgent(param vo.ListAgentVersionParam) ([]model.AgentCardInfo, error)
-    SearchAgentCardsByName(param vo.SearchAgentParam) (model.Page[model.AgentCardInfo], error)
-    ListAgentCards(param vo.ListAgentCardsParam) (model.Page[model.AgentCardInfo], error)
+    RegisterAgent(param vo.RegisterAgentParam) (bool, error)
+    GetAgentCard(param vo.GetMaintainerAgentCardParam) (model.AgentCardDetailInfo, error)
+    UpdateAgentCard(param vo.UpdateAgentCardParam) (bool, error)
+    DeleteAgent(param vo.DeleteAgentParam) (bool, error)
+    ListAllVersionOfAgent(param vo.ListAgentVersionParam) ([]model.AgentVersionDetail, error)
+    SearchAgentCards(param vo.SearchAgentParam) (model.Page[model.AgentCardVersionInfo], error)
+    ListAgentCards(param vo.ListAgentCardsParam) (model.Page[model.AgentCardVersionInfo], error)
 }
 ```
 
@@ -1368,7 +1370,7 @@ MaintainerHttpProxy
 
 ### Step 4：CoreMaintainerClient 实现
 
-**目标**：实现所有 Maintainer 共享的 Core 管理能力（25 个方法）。
+**目标**：实现所有 Maintainer 共享的 Core 管理能力（20 个方法）。
 
 **新建文件**：
 
@@ -1400,11 +1402,6 @@ MaintainerHttpProxy
 | | `UpdateNamespace` | PUT | `/v3/admin/core/namespace` |
 | | `DeleteNamespace` | DELETE | `/v3/admin/core/namespace` |
 | | `CheckNamespaceIdExist` | GET | `/v3/admin/core/namespace/check` |
-| Plugin | `ListPlugins` | GET | `/v3/admin/core/plugin/list` |
-| | `GetPluginDetail` | GET | `/v3/admin/core/plugin/{type}/{name}` |
-| | `UpdatePluginStatus` | PUT | `/v3/admin/core/plugin/{type}/{name}/status` |
-| | `UpdatePluginConfig` | PUT | `/v3/admin/core/plugin/{type}/{name}/config` |
-| | `GetPluginAvailability` | GET | `/v3/admin/core/plugin/{type}/{name}/availability` |
 | 生命周期 | `CloseClient` | — | cancel context、释放资源 |
 
 每个方法的实现模式统一：

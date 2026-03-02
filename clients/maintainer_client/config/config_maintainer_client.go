@@ -135,7 +135,7 @@ func (c *ConfigMaintainerClient) PublishBetaConfig(param vo.PublishBetaConfigPar
 	}
 	delete(params, "betaIps")
 	res := c.buildConfigResource(param.NamespaceId, param.Group, param.DataId)
-	resp, err := c.Proxy.ReqApiWithHeaders(constant.AdminConfigPath, params, headers, "POST", res)
+	resp, err := c.Proxy.ReqApiWithHeaders(constant.AdminConfigPath, params, headers, http.MethodPost, res)
 	if err != nil {
 		return false, err
 	}

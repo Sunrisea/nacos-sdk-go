@@ -18,6 +18,7 @@ package ai
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/maintainer_client/core"
@@ -111,19 +112,18 @@ func (c *AiMaintainerClient) UpdateMcpServer(param vo.UpdateMcpServerParam) (boo
 		params["endpointSpecification"] = toJsonString(param.EndpointSpec)
 	}
 	res := c.buildAiResource(param.NamespaceId, param.McpName)
-	resp, err := c.Proxy.ReqApi(constant.AdminAiMcpPath, params, "PUT", res)
+	resp, err := c.Proxy.ReqApi(constant.AdminAiMcpPath, params, http.MethodPut, res)
 	if err != nil {
 		return false, err
 	}
-	result, err := remote.ParseResult[string](resp)
-	_ = result
+	_, err = remote.ParseResult[string](resp)
 	return err == nil, err
 }
 
 func (c *AiMaintainerClient) DeleteMcpServer(param vo.DeleteMcpServerParam) (bool, error) {
 	params := remote.TransformParam(param)
 	res := c.buildAiResource(param.NamespaceId, param.McpName)
-	resp, err := c.Proxy.ReqApi(constant.AdminAiMcpPath, params, "DELETE", res)
+	resp, err := c.Proxy.ReqApi(constant.AdminAiMcpPath, params, http.MethodDelete, res)
 	if err != nil {
 		return false, err
 	}
@@ -148,7 +148,7 @@ func (c *AiMaintainerClient) RegisterAgent(param vo.RegisterAgentParam) (bool, e
 		params["registrationType"] = param.RegistrationType
 	}
 	res := c.buildAiResource(param.NamespaceId, param.AgentName)
-	resp, err := c.Proxy.ReqApi(constant.AdminAiA2aPath, params, "POST", res)
+	resp, err := c.Proxy.ReqApi(constant.AdminAiA2aPath, params, http.MethodPost, res)
 	if err != nil {
 		return false, err
 	}
@@ -178,7 +178,7 @@ func (c *AiMaintainerClient) UpdateAgentCard(param vo.UpdateAgentCardParam) (boo
 		params["registrationType"] = param.RegistrationType
 	}
 	res := c.buildAiResource(param.NamespaceId, param.AgentName)
-	resp, err := c.Proxy.ReqApi(constant.AdminAiA2aPath, params, "PUT", res)
+	resp, err := c.Proxy.ReqApi(constant.AdminAiA2aPath, params, http.MethodPut, res)
 	if err != nil {
 		return false, err
 	}
@@ -189,7 +189,7 @@ func (c *AiMaintainerClient) UpdateAgentCard(param vo.UpdateAgentCardParam) (boo
 func (c *AiMaintainerClient) DeleteAgent(param vo.DeleteAgentParam) (bool, error) {
 	params := remote.TransformParam(param)
 	res := c.buildAiResource(param.NamespaceId, param.AgentName)
-	resp, err := c.Proxy.ReqApi(constant.AdminAiA2aPath, params, "DELETE", res)
+	resp, err := c.Proxy.ReqApi(constant.AdminAiA2aPath, params, http.MethodDelete, res)
 	if err != nil {
 		return false, err
 	}

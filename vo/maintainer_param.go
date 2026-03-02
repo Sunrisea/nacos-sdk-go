@@ -369,6 +369,7 @@ type SearchAgentParam struct {
 // ListAgentCardsParam represents parameters for listing agent cards.
 type ListAgentCardsParam struct {
 	NamespaceId string `param:"namespaceId"`
+	AgentName   string `param:"agentName"`
 	PageNo      int    `param:"pageNo"`
 	PageSize    int    `param:"pageSize"`
 }
