@@ -87,11 +87,14 @@ func NewNamingClientWithRamCredentialProvider(nc nacos_client.INacosClient, prov
 
 	naming.serviceProxy, err = NewNamingProxyDelegateWithRamCredentialProvider(ctx, clientConfig, serverConfig, httpAgent, naming.serviceInfoHolder, provider)
 
+	if err != nil {
+		cancel()
+		naming.serviceInfoHolder.Close()
+		return naming, err
+	}
+
 	if clientConfig.AsyncUpdateService {
 		go NewServiceInfoUpdater(ctx, naming.serviceInfoHolder, clientConfig.UpdateThreadNum, naming.serviceProxy).asyncUpdateService()
-	}
-	if err != nil {
-		return naming, err
 	}
 
 	return naming, nil
@@ -397,6 +400,9 @@ func (sc *NamingClient) CloseClient() {
 		return
 	}
 	sc.serviceProxy.CloseClient()
+	if sc.serviceInfoHolder != nil {
+		sc.serviceInfoHolder.Close()
+	}
 	sc.cancel()
 	sc.isClosed = true
 }
